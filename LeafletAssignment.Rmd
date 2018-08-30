@@ -1,0 +1,87 @@
+---
+title: "Beef Herd By Country for 2016"
+author: "Mark Smith"
+date: "29 August 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+Mouse over markers for details.  Red (Highest) to Blue (lowest).
+```{r plot, echo=FALSE, error=FALSE, warning=FALSE}
+loadNoisyPackages <- function() {
+library(rgeos)
+library(rworldmap)
+library(data.table)
+library(dplyr)
+library(leaflet)
+library(readxl)
+library(stringr)
+}
+
+suppressPackageStartupMessages(loadNoisyPackages())
+
+# Use the World Map to get the Centroids for each country for use later
+wmap <- getMap(resolution="high")
+centroids <- gCentroid(wmap, byid=TRUE)
+centr <- as.data.frame(centroids)
+centr$country <- rownames(centr)
+
+# Load the data in and strip it down to the 2016 data from Table13.6 - beef herd numbers
+df <- read_excel("ACS2017_Meat-BeefTables_v1.0.0.xlsx", sheet="Table13.6", skip=7)
+country <- df[,"X__1"]
+beef <- df[,"2016"]
+beefData <- data.frame(country, beef)[4:nrow(df)-2,]
+names(beefData) <- c("country", "beef")
+
+fixCountryName <-  function(x){
+        x %>% 
+                str_replace('Australia b', 'Australia') %>% 
+                str_replace('China c', 'China') %>% 
+                str_replace('European Union d', 'Belgium') %>% 
+                str_replace('India e', 'India') %>% 
+                str_replace('Korea, Rep. of', 'South Korea') %>% 
+                str_replace('Russian Federation', 'Russia') %>% 
+                str_replace('United States', 'United States of America')
+}
+
+# Fix the country names
+beefData <- mutate_all(beefData, funs(fixCountryName))
+# Convert the totals to a number
+beefData$beef <- as.numeric(beefData$beef)
+# Add the centroids to the data
+plotData <- left_join(beefData, centr, by="country")
+# Sort the table so colours will be assigned correctly
+plotData <- plotData[order(plotData$beef),]
+# Add the colour set
+colFunc <- colorRampPalette(c("royalblue","springgreen","yellow","red"))
+# Make the EU actually show as the EU :)
+plotData[plotData$country == "Belgium", ]$country = "EU"
+# Prepare descriptions and colours into one data frame
+preparedData <- data.frame(latitude = plotData$y,
+                longitude = plotData$x,
+                name = paste(plotData$country, round(plotData$beef, 2), "(million head)"),
+                colors = colFunc(nrow(plotData))
+)
+
+# Set up a coloured icon set for the plot
+icons <- awesomeIcons(
+        icon = 'ios-close',
+        iconColor = preparedData$colors,
+        library = 'ion',
+        markerColor = 'black'
+)
+
+# Plot with Leaflet
+preparedData %>%
+leaflet() %>%
+addTiles() %>%
+addAwesomeMarkers(~longitude, ~latitude, icon=icons, label=~as.character(name))
+```
+
+Data courtesy of <http://www.agriculture.gov.au/abares/research-topics/agricultural-commodities/agricultural-commodities-trade-data#agricultural-commodities>
+
+The exact file was <http://data.daff.gov.au/data/warehouse/agcstd9abcc002/agcstd9abcc0022017_IugZg/ACS2017_Meat-BeefTables_v1.0.0.xlsx>
+
+Please note that the data is loaded directly from the XLSX file but a fair amount of cleansing is required to make it usable.  Details are available in the Rmd code at <https://github.com/MarkSmithAU/DevelopingDataProductsLeafletAssignment>
